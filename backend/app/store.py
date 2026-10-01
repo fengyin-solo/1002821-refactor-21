@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.seed import SEED_ROWS
+from app.services import transplant_metrics
 
 
 class Store:
@@ -14,6 +15,9 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 算法换过后，把已有的成活记录按新算法重算一遍；
+        # 已经是当前算法版本的旧记录不重做，迁移只发生一次（幂等）。
+        transplant_metrics.backfill_legacy_rows(self._tables.setdefault("transplant", []))
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
@@ -42,6 +46,12 @@ class Store:
             {"label": "今日新增", "value": sum(int(item["created"]) for item in modules)},
             {"label": "待处理", "value": sum(int(item["pending"]) for item in modules)},
             {"label": "异常量", "value": sum(int(item["abnormal"]) for item in modules)},
+            {
+                "label": "移植成活率",
+                "value": transplant_metrics.format_rate(
+                    transplant_metrics.overall_survival(self.rows("transplant"))
+                ),
+            },
         ]
         return {"cards": cards, "modules": modules}
 

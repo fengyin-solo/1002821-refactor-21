@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services import transplant_metrics as metrics
 from app.store import store
 
 MODULE = "seedling"
@@ -59,3 +60,11 @@ class SeedlingService:
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
         return entry, f"苗圃已{action}"
+
+    def transplant_survival(self) -> dict[str, Any]:
+        """苗木基地页面读到的移植成活率，必须与移植页取同一份共用实现。"""
+        rows = store.rows("transplant")
+        return {
+            "survival_rate": metrics.format_rate(metrics.overall_survival(rows)),
+            "locations": metrics.location_breakdown(rows),
+        }

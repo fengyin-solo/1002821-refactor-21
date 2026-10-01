@@ -59,6 +59,29 @@
       <span>共 {{ total }} 条苗木基地记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
+
+    <h3 class="section-title">移入苗木成活情况（与苗木移植页取同一份成活率）</h3>
+    <div class="stat-row">
+      <article class="stat-card">
+        <span class="stat-label">移植综合成活率</span>
+        <strong class="stat-value">{{ survivalRate }}</strong>
+      </article>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th v-for="column in survivalColumns" :key="column">{{ column }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="item in survivalByLocation" :key="item['移入位置'] || '空'">
+          <td v-for="column in survivalColumns" :key="column">{{ item[column] ?? '—' }}</td>
+        </tr>
+        <tr v-if="!survivalByLocation.length">
+          <td :colspan="survivalColumns.length" class="empty-state">暂无移入成活数据</td>
+        </tr>
+      </tbody>
+    </table>
   </section>
 </template>
 
@@ -68,9 +91,11 @@ import { onMounted, ref } from 'vue'
 import { request } from '@/api/client'
 
 type Row = Record<string, string | number | null>
+type SurvivalRow = Record<string, string | number>
 
 const ENDPOINT = '/api/seedling'
 const columns = ["苗圃编号", "苗圃名称", "苗圃面积", "培育品种", "出圃周期", "在圃数量", "管护人员", "苗圃状态"]
+const survivalColumns = ["移入位置", "记录数", "移植数量", "成活数量", "待补录数量", "成活率"]
 const actions = ["登记出圃", "休整轮作", "废弃苗圃"]
 const statuses = ["正常", "出圃中", "休整中", "已废弃"]
 const stats = [{"label": "正常苗圃", "value": 0}, {"label": "出圃苗圃", "value": 0}, {"label": "休整苗圃", "value": 0}]
@@ -80,6 +105,8 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const survivalRate = ref('—')
+const survivalByLocation = ref<SurvivalRow[]>([])
 
 function resetFilters() {
   filters.value = {}
@@ -126,5 +153,23 @@ async function reload() {
   }
 }
 
-onMounted(reload)
+async function reloadSurvival() {
+  try {
+    const response = await request(`${ENDPOINT}/transplant-survival`)
+    if (!response.ok) {
+      throw new Error('移植成活率读取失败')
+    }
+    const payload = await response.json()
+    survivalRate.value = payload.survival_rate ?? '—'
+    survivalByLocation.value = payload.locations ?? []
+  } catch {
+    survivalRate.value = '—'
+    survivalByLocation.value = []
+  }
+}
+
+onMounted(() => {
+  void reload()
+  void reloadSurvival()
+})
 </script>
