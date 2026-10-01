@@ -68,18 +68,48 @@ import { onMounted, ref } from 'vue'
 import { request } from '@/api/client'
 
 type Row = Record<string, string | number | null>
+type SurvivalOverview = {
+  overallRate: string
+  pendingQuantityBatches: number
+  duplicateBatches: number
+  statusCounts: Record<string, number>
+}
 
 const ENDPOINT = '/api/transplant'
 const columns = ["移植编号", "移植树种", "移植数量", "移出位置", "移入位置", "移植日期", "成活率", "移植状态"]
 const actions = ["安排移植", "登记移植", "记录成活"]
 const statuses = ["待移植", "已移植", "已成活", "已死亡"]
-const stats = [{"label": "待移植苗木", "value": 0}, {"label": "已成活苗木", "value": 0}, {"label": "死亡苗木", "value": 0}]
 
 const rows = ref<Row[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+// 卡片数值全部来自后端同一份成活算法（survival-overview），不在前端另算。
+const stats = ref([
+  { label: '整体成活率', value: '—' },
+  { label: '已成活批次', value: 0 },
+  { label: '数量待补录', value: 0 },
+  { label: '重复登记拦截', value: 0 },
+])
+
+async function loadStats() {
+  try {
+    const response = await request(`${ENDPOINT}/survival-overview`)
+    if (!response.ok) {
+      return
+    }
+    const overview = (await response.json()) as SurvivalOverview
+    stats.value = [
+      { label: '整体成活率', value: overview.overallRate },
+      { label: '已成活批次', value: overview.statusCounts['已成活'] ?? 0 },
+      { label: '数量待补录', value: overview.pendingQuantityBatches },
+      { label: '重复批次（已去重）', value: overview.duplicateBatches },
+    ]
+  } catch {
+    // 卡片读取失败不阻塞明细列表，保留占位值即可。
+  }
+}
 
 function resetFilters() {
   filters.value = {}
@@ -96,15 +126,29 @@ function openCreate() {
 
 async function runAction(action: string, row: Row) {
   errorMessage.value = ''
+  const payload: Record<string, string | number> = { action }
+  if (action === '记录成活') {
+    const input = window.prompt(`请输入「${row['移植编号']}」的成活数量（移植数量：${row['移植数量']}）`)
+    if (input === null) {
+      return
+    }
+    const survived = Number(input)
+    if (!Number.isInteger(survived) || survived < 0) {
+      errorMessage.value = '成活数量必须是不小于 0 的整数'
+      return
+    }
+    payload['成活数量'] = survived
+  }
   try {
     const response = await request(`${ENDPOINT}/${row.id}/actions`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify(payload),
     })
-    if (!response.ok) {
-      throw new Error('苗木移植动作未生效，请稍后重试')
+    const result = await response.json().catch(() => null) as { message?: string } | null
+    if (!response.ok || result === null) {
+      throw new Error(result?.message ?? '苗木移植动作未生效，请稍后重试')
     }
-    await reload()
+    await Promise.all([reload(), loadStats()])
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '苗木移植操作失败'
   }
@@ -126,5 +170,8 @@ async function reload() {
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  void reload()
+  void loadStats()
+})
 </script>

@@ -1,8 +1,6 @@
 """苗木移植接口：维护移植记录，覆盖安排移植、登记移植、记录成活等动作。"""
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas import ActionResult, EntryPayload, PageResult
@@ -14,6 +12,19 @@ service = TransplantService()
 
 LIST_FIELDS = ["移植编号", "移植树种", "移植数量", "移出位置", "移入位置", "移植日期", "成活率", "移植状态"]
 STATUSES = ["待移植", "已移植", "已成活", "已死亡"]
+
+
+@router.get("/survival-overview")
+def survival_overview() -> dict:
+    """苗木基地页面与统计看板共用的成活情况：整体率值、分位置率值都跟着明细重算。"""
+    return {"module": "transplant", **service.survival_overview()}
+
+
+@router.get("/export")
+def export_entries() -> dict:
+    """导出苗木移植清单：成活率与移入位置走统一读口径，和页面上看到的完全一致。"""
+    items = service.all_entries()
+    return {"module": "transplant", "total": len(items), "items": items}
 
 
 @router.get("", response_model=PageResult[dict])
@@ -41,25 +52,23 @@ def get_entry(entry_id: int) -> dict:
 
 @router.post("", response_model=ActionResult)
 def create_entry(payload: EntryPayload) -> ActionResult:
-    """登记一条移植记录，缺字段时说明原因而不是静默丢弃。"""
-    entry, missing = service.create_entry(payload.values)
+    """登记一条移植记录，缺字段时说明原因；同一移植编号重复登记只保留第一批。"""
+    entry, missing, duplicated = service.create_entry(payload.values)
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
+    if duplicated:
+        return ActionResult(ok=True, message="该批苗木已登记过，沿用原有记录，不重复登记", entry=entry)
     return ActionResult(ok=True, message="移植记录已登记", entry=entry)
 
 
 @router.post("/{entry_id}/actions", response_model=ActionResult)
 def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
-    """对单条移植记录执行安排移植、登记移植、记录成活；不允许的动作会被拦下并说明原因。"""
+    """对单条移植记录执行安排移植、登记移植、记录成活；不允许的动作会被拦下并说明原因。
+
+    「记录成活」需要在 values 里带成活数量，成活率由共用算法回算。
+    """
     action = str(payload.values.get("action") or "").strip()
-    entry, message = service.run_action(entry_id, action)
+    entry, message = service.run_action(entry_id, action, payload.values)
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出苗木移植清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "transplant", "total": total, "items": items}

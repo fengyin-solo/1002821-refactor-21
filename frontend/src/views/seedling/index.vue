@@ -18,6 +18,27 @@
       </article>
     </div>
 
+    <header class="page-head" style="margin-top: 16px;">
+      <div>
+        <h3>出圃苗木移植成活情况</h3>
+        <p class="page-desc">按归一后的移入位置汇总，率值与苗木移植管理页、运营概览看板是同一份算法。</p>
+      </div>
+    </header>
+    <table class="data-table">
+      <thead>
+        <tr><th>移入位置（已归一）</th><th>成活率</th></tr>
+      </thead>
+      <tbody>
+        <tr v-for="item in transplantLocations" :key="item['移入位置']">
+          <td>{{ item['移入位置'] }}</td>
+          <td>{{ item['成活率'] }}</td>
+        </tr>
+        <tr v-if="!transplantLocations.length">
+          <td colspan="2" class="empty-state">暂无可重算的移植成活明细</td>
+        </tr>
+      </tbody>
+    </table>
+
     <form class="filter-bar" @submit.prevent="reload">
       <label v-for="field in filterFields" :key="field" class="filter-item">
         <span>{{ field }}</span>
@@ -80,6 +101,21 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+// 直接取苗木移植的统一成活口径，本页不另算，保证和移植页看到的是同一个数。
+const transplantLocations = ref<{ '移入位置': string; '成活率': string }[]>([])
+
+async function loadTransplantSurvival() {
+  try {
+    const response = await request('/api/transplant/survival-overview')
+    if (!response.ok) {
+      return
+    }
+    const payload = await response.json()
+    transplantLocations.value = payload.locations ?? []
+  } catch {
+    // 成活情况读取失败不影响苗圃台账本身。
+  }
+}
 
 function resetFilters() {
   filters.value = {}
@@ -126,5 +162,8 @@ async function reload() {
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  void reload()
+  void loadTransplantSurvival()
+})
 </script>

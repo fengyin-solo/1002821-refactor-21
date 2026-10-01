@@ -43,7 +43,11 @@ class Store:
             {"label": "待处理", "value": sum(int(item["pending"]) for item in modules)},
             {"label": "异常量", "value": sum(int(item["abnormal"]) for item in modules)},
         ]
-        return {"cards": cards, "modules": modules}
+        # 看板里的移植成活率跟明细共用同一份算法重算，避免看板和列表两个数。
+        from app.services import transplant_survival
+
+        transplant_survival = transplant_survival.build_survival_overview(self.rows("transplant"))
+        return {"cards": cards, "modules": modules, "transplantSurvival": transplant_survival}
 
 
 store = Store()
